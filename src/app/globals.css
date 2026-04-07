@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-gunmetal: #1c232a;
+  --color-charcoal: #0f1115;
+  --color-aluminum: #9ba4b5;
+  --color-cobalt: #0047AB;
+  --color-cobalt-glow: #22d3ee;
+  --color-amber: #f59e0b;
+  --font-mono: var(--font-ibm-plex);
+}
+
+body {
+  background: #000;
+  color: #fff;
+  font-family: var(--font-mono), monospace;
+}
