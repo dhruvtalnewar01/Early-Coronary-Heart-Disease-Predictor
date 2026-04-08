@@ -8,8 +8,8 @@ httpx==0.27.0
 sse-starlette==2.1.0
 
 # ── Google Gemini — PRIMARY LLM ───────────────────────────────────────────
-google-generativeai==0.7.2
-langchain-google-genai==1.0.6
+google-generativeai>=0.5.2
+langchain-google-genai>=1.0.6
 
 # ── LangChain + LangGraph ─────────────────────────────────────────────────
 langchain==0.2.5
