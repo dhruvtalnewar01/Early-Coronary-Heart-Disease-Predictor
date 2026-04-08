@@ -16,6 +16,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        protected_namespaces=('settings_',)
     )
 
     # ── OpenRouter LLM ────────────────────────────────────────────────────
@@ -25,7 +26,7 @@ class Settings(BaseSettings):
     openrouter_temperature: float = 0.1
 
     # ── Database ──────────────────────────────────────────────────────────
-    database_url: str
+    database_url: str = "postgresql+asyncpg://chd_user:chd_pass@localhost:5432/chd_predictor"
     postgres_user: str = "chd_user"
     postgres_password: str = "chd_pass"
     postgres_db: str = "chd_predictor"
