@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import Link from "next/link";
 
 export default function AIPredictionHeader() {
     const [scrolled, setScrolled] = useState(false);
@@ -12,6 +11,20 @@ export default function AIPredictionHeader() {
         return () => window.removeEventListener("scroll", handleScroll);
     }, []);
 
+    const navItems = [
+        { label: "Diagnostic Protocols", target: "section-diagnostic" },
+        { label: "Intervention Synthesis", target: "section-intervention" },
+        { label: "Hybrid AI Approach", target: "section-risk" },
+        { label: "Clinical Outcomes", target: "section-report" },
+    ];
+
+    const scrollToSection = (targetId: string) => {
+        const el = document.getElementById(targetId);
+        if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    };
+
     return (
         <header className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-7xl transition-all duration-500">
             <div
@@ -21,10 +34,10 @@ export default function AIPredictionHeader() {
                     }`}
             >
                 {/* Left: Logo */}
-                <div className="flex flex-col">
-                    <Link href="/" className="text-white font-mono text-sm tracking-[0.2em] uppercase font-semibold">
+                <div className="flex flex-col cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                    <span className="text-white font-mono text-sm tracking-[0.2em] uppercase font-semibold">
                         CHD PREDICTOR AI
-                    </Link>
+                    </span>
                     <span className="text-cyan-400 font-mono text-[10px] tracking-[0.3em] uppercase opacity-80 mt-0.5">
                         Hybrid Intelligence
                     </span>
@@ -32,26 +45,24 @@ export default function AIPredictionHeader() {
 
                 {/* Center: Navigation Links */}
                 <nav className="hidden md:flex space-x-10">
-                    {[
-                        "Diagnostic Protocols",
-                        "Intervention Synthesis",
-                        "Hybrid AI Approach",
-                        "Clinical Outcomes"
-                    ].map((item) => (
-                        <Link
-                            key={item}
-                            href="#"
-                            className="text-gray-300 font-mono text-xs tracking-widest uppercase hover:text-white hover:text-shadow-sm transition-all duration-300 relative group"
+                    {navItems.map((item) => (
+                        <button
+                            key={item.label}
+                            onClick={() => scrollToSection(item.target)}
+                            className="text-gray-300 font-mono text-xs tracking-widest uppercase hover:text-white hover:text-shadow-sm transition-all duration-300 relative group bg-transparent border-none cursor-pointer"
                         >
-                            {item}
+                            {item.label}
                             <span className="absolute -bottom-2 left-1/2 w-0 h-[1px] bg-cyan-400 transition-all duration-300 group-hover:w-1/2 group-hover:left-1/4 opacity-0 group-hover:opacity-100" />
-                        </Link>
+                        </button>
                     ))}
                 </nav>
 
                 {/* Right: CTA Button */}
                 <div>
-                    <button className="relative overflow-hidden group px-6 py-2.5 rounded-full border border-white/20 bg-white/5 hover:bg-white/10 transition-all duration-300 backdrop-blur-md">
+                    <button
+                        onClick={() => scrollToSection("section-monitoring")}
+                        className="relative overflow-hidden group px-6 py-2.5 rounded-full border border-white/20 bg-white/5 hover:bg-white/10 transition-all duration-300 backdrop-blur-md cursor-pointer"
+                    >
                         <span className="relative z-10 font-mono text-xs text-white tracking-widest uppercase">
                             Schedule Review
                         </span>

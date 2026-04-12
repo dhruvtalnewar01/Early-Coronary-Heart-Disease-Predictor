@@ -33,8 +33,8 @@ export default function CHDTextOverlay() {
         <div ref={containerRef} className="absolute inset-0 w-full h-[400vh] pointer-events-none z-20 font-mono">
 
             {/* 0-100vh: Intro */}
-            <div className="absolute top-0 left-0 w-full h-screen flex items-center justify-start px-8 md:px-24">
-                <div ref={sec1} className="max-w-xl translate-y-[-10vh]">
+            <div className="absolute top-0 left-0 w-full h-screen flex items-start justify-start px-8 md:px-24 pt-36">
+                <div ref={sec1} className="max-w-xl">
                     <h1 className="text-3xl md:text-5xl font-bold text-white tracking-[0.1em] uppercase mb-6 leading-tight drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)]">
                         ARTERIAL INTEGRITY <br />
                         <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-gray-100 to-gray-500">

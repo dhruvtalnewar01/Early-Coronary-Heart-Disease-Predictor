@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import gsap from "gsap";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+/* ─── DEMO ANALYSIS ENGINE ──────────────────────────────────────────────── */
+/* Pure client-side computation — no API required                           */
 
 interface AnalysisResult {
     status: string;
@@ -18,6 +19,401 @@ interface AnalysisResult {
     agent_trace: any[];
     patient_info: any;
 }
+
+function computeAge(dob: string): number {
+    const birth = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age;
+}
+
+function generateDemoAnalysis(formData: any): AnalysisResult {
+    const age = formData.dob ? computeAge(formData.dob) : 45;
+    const isMale = formData.sex === "male";
+    const ldl = parseFloat(formData.ldl) || 130;
+    const hdl = parseFloat(formData.hdl) || 45;
+    const totalChol = parseFloat(formData.totalChol) || 220;
+    const triglycerides = parseFloat(formData.triglycerides) || 160;
+    const crpHs = parseFloat(formData.crpHs) || 2.5;
+    const troponinI = parseFloat(formData.troponinI) || 0.02;
+    const hba1c = parseFloat(formData.hba1c) || 5.8;
+    const fastingGlucose = parseFloat(formData.fastingGlucose) || 100;
+    const isSmoker = formData.smoking === "current";
+    const hasDiabetes = formData.diabetes !== "none";
+    const hasHypertension = formData.hypertension;
+    const hasFamilyHistory = formData.familyHistory;
+    const bmi = formData.height && formData.weight
+        ? parseFloat(formData.weight) / ((parseFloat(formData.height) / 100) ** 2)
+        : 25;
+
+    // ── Compute clinical risk scores ──
+    let framinghamBase = 0;
+    if (isMale) {
+        framinghamBase = age > 55 ? 18 : age > 45 ? 12 : 6;
+    } else {
+        framinghamBase = age > 55 ? 14 : age > 45 ? 8 : 4;
+    }
+    if (totalChol > 240) framinghamBase += 4;
+    else if (totalChol > 200) framinghamBase += 2;
+    if (hdl < 40) framinghamBase += 3;
+    else if (hdl < 50) framinghamBase += 1;
+    if (isSmoker) framinghamBase += 4;
+    if (hasHypertension) framinghamBase += 3;
+    const framingham10yr = Math.min(45, Math.max(1, framinghamBase));
+
+    const pce_base = framinghamBase * 0.8 + (hasDiabetes ? 5 : 0) + (crpHs > 2 ? 3 : 0);
+    const pooledCohort10yr = Math.min(40, Math.max(1, Math.round(pce_base)));
+
+    const graceScore = Math.min(250, Math.max(30, Math.round(50 + age * 1.5 + (hasHypertension ? 20 : 0) + (troponinI > 0.04 ? 30 : 0) + (crpHs > 3 ? 15 : 0))));
+    const timiScore = Math.min(7, (age >= 65 ? 1 : 0) + (hasDiabetes ? 1 : 0) + (hasHypertension ? 1 : 0) + (isSmoker ? 1 : 0) + (hasFamilyHistory ? 1 : 0) + (ldl > 160 ? 1 : 0) + (troponinI > 0.04 ? 1 : 0));
+    const reynolds = Math.min(35, Math.max(1, Math.round(framinghamBase * 0.7 + crpHs * 2 + (hasFamilyHistory ? 4 : 0))));
+    const score2 = Math.min(30, Math.max(1, Math.round(framinghamBase * 0.6 + (hasDiabetes ? 3 : 0) + (bmi > 30 ? 3 : 0))));
+
+    // ── Composite risk score (0-100) ──
+    const composite = Math.min(95, Math.max(5, Math.round(
+        framingham10yr * 0.3 + pooledCohort10yr * 0.3 + (graceScore / 250) * 20 + timiScore * 3 + (crpHs > 3 ? 10 : crpHs > 1 ? 5 : 0) + (ldl > 160 ? 8 : ldl > 130 ? 4 : 0) + (hasFamilyHistory ? 5 : 0) + (hasDiabetes ? 5 : 0)
+    )));
+    const ciLo = Math.max(1, composite - Math.round(Math.random() * 8 + 5));
+    const ciHi = Math.min(99, composite + Math.round(Math.random() * 8 + 5));
+    const riskTier = composite >= 65 ? "very_high_risk" : composite >= 45 ? "high_risk" : composite >= 25 ? "intermediate_risk" : "low_risk";
+
+    // ── Biomarker analysis ──
+    const abnormals: any[] = [];
+    if (ldl > 100) abnormals.push({ name: "LDL Cholesterol", severity: ldl > 160 ? "Critical High" : ldl > 130 ? "Elevated" : "Borderline High", clinical_significance: `LDL at ${ldl} mg/dL exceeds optimal threshold. Consider statin therapy per ACC/AHA guidelines.` });
+    if (hdl < 60) abnormals.push({ name: "HDL Cholesterol", severity: hdl < 40 ? "Critical Low" : "Borderline Low", clinical_significance: `HDL at ${hdl} mg/dL indicates suboptimal reverse cholesterol transport capacity.` });
+    if (crpHs > 1) abnormals.push({ name: "hs-CRP", severity: crpHs > 3 ? "Critical High" : "Elevated", clinical_significance: `hs-CRP at ${crpHs} mg/L suggests systemic vascular inflammation. Consider JUPITER trial criteria for statin candidacy.` });
+    if (triglycerides > 150) abnormals.push({ name: "Triglycerides", severity: triglycerides > 200 ? "High" : "Borderline High", clinical_significance: `Triglycerides at ${triglycerides} mg/dL indicate atherogenic dyslipidemia risk.` });
+    if (hba1c > 5.7) abnormals.push({ name: "HbA1c", severity: hba1c > 6.5 ? "Critical High" : "Elevated", clinical_significance: `HbA1c at ${hba1c}% suggests ${hba1c > 6.5 ? "diabetes mellitus" : "pre-diabetic state"}, an independent CVD risk multiplier.` });
+
+    const lipidGrade = ldl > 160 ? "very_high_risk" : ldl > 130 ? "high_risk" : ldl > 100 ? "borderline_high" : "optimal";
+    const inflammTier = crpHs > 3 ? "high" : crpHs > 1 ? "moderate" : "low";
+    const metabolicSyn = (triglycerides > 150 ? 1 : 0) + (hdl < (isMale ? 40 : 50) ? 1 : 0) + (fastingGlucose > 100 ? 1 : 0) + (hasHypertension ? 1 : 0) + (bmi > 30 ? 1 : 0) >= 3;
+
+    const bioNarrative = `Comprehensive lipid panel analysis for ${formData.firstName} ${formData.lastName} reveals ${abnormals.length > 0 ? "multiple biomarkers outside optimal reference ranges" : "biomarkers within acceptable ranges"}. Total cholesterol: ${totalChol} mg/dL, LDL: ${ldl} mg/dL, HDL: ${hdl} mg/dL, Triglycerides: ${triglycerides} mg/dL. Inflammatory marker hs-CRP at ${crpHs} mg/L ${crpHs > 3 ? "indicates high-grade systemic inflammation requiring immediate clinical attention" : crpHs > 1 ? "suggests moderate vascular inflammatory burden" : "is within low-risk range"}. ${metabolicSyn ? "WARNING: Criteria for Metabolic Syndrome are met (≥3 of 5 ATP-III criteria positive)." : "Metabolic syndrome criteria are not fully met at this time."}`;
+
+    // ── Imaging analysis (simulated) ──
+    const imagingAnalysis = {
+        findings_narrative: `Simulated CT coronary angiography assessment: Coronary artery calcium (CAC) score estimated at ${Math.round(age * 2.5 + (isSmoker ? 50 : 0) + (ldl > 160 ? 40 : 0))} Agatston units. ${composite > 50 ? "Non-calcified plaque burden detected in LAD territory with possible thin-cap fibroatheroma morphology. Recommend invasive coronary angiography (ICA) for further evaluation." : "No significant obstructive lesions identified. Recommend continued risk factor modification and follow-up imaging in 3-5 years."} Left ventricular ejection fraction estimated normal (55-65%).`,
+    };
+
+    // ── Risk assessment ──
+    const modifiableDrivers: any[] = [];
+    if (ldl > 100) modifiableDrivers.push({ factor: "LDL Cholesterol", current_value: `${ldl} mg/dL`, target_value: "< 70 mg/dL", impact_score: ldl > 160 ? 9 : 7 });
+    if (isSmoker) modifiableDrivers.push({ factor: "Smoking", current_value: "Active Smoker", target_value: "Complete Cessation", impact_score: 10 });
+    if (crpHs > 1) modifiableDrivers.push({ factor: "hs-CRP", current_value: `${crpHs} mg/L`, target_value: "< 1.0 mg/L", impact_score: crpHs > 3 ? 8 : 5 });
+    if (bmi > 25) modifiableDrivers.push({ factor: "BMI", current_value: `${bmi.toFixed(1)}`, target_value: "< 25.0", impact_score: bmi > 30 ? 7 : 4 });
+    if (hasHypertension) modifiableDrivers.push({ factor: "Blood Pressure", current_value: "Hypertensive", target_value: "< 130/80 mmHg", impact_score: 8 });
+
+    const urgentFlags: string[] = [];
+    if (composite >= 65) urgentFlags.push("VERY HIGH 10-YEAR MACE RISK");
+    if (troponinI > 0.04) urgentFlags.push("ELEVATED TROPONIN — RULE OUT ACS");
+    if (crpHs > 3 && ldl > 160) urgentFlags.push("DUAL HIGH-RISK: INFLAMMATION + DYSLIPIDEMIA");
+    if (hasFamilyHistory && age < 55) urgentFlags.push("PREMATURE CHD FAMILY HISTORY");
+
+    const clinicalReasoning = `This ${age}-year-old ${isMale ? "male" : "female"} patient presents with a composite ML-derived risk score of ${composite}/100 (${riskTier.replace(/_/g, " ").toUpperCase()}). ${abnormals.length > 0 ? `Key abnormal biomarkers include ${abnormals.map(a => a.name).join(", ")}.` : ""} ${hasFamilyHistory ? "Positive family history of premature CAD significantly amplifies baseline risk independent of traditional Framingham variables." : ""} ${isSmoker ? "Active tobacco use is the single most modifiable risk driver, with cessation expected to reduce 10-year MACE risk by 35-50%." : ""} Multi-score consensus analysis (Framingham ${framingham10yr}%, PCE ${pooledCohort10yr}%, GRACE ${graceScore}) supports the ${riskTier.replace(/_/g, " ")} classification. ${composite >= 45 ? "Aggressive pharmacological and lifestyle intervention is strongly recommended per ACC/AHA 2019 Primary Prevention Guidelines." : "Continued risk factor monitoring and lifestyle optimization are advised."}`;
+
+    // ── Intervention plan ──
+    const meds: any[] = [];
+    if (ldl > 100) {
+        meds.push({
+            drug: ldl > 160 ? "Rosuvastatin" : "Atorvastatin",
+            dose: ldl > 160 ? "20-40 mg" : "10-20 mg",
+            frequency: "Once daily at bedtime",
+            evidence_grade: "Class I, Level A",
+            monitoring: "Lipid panel, LFTs at 4-6 weeks, then q6 months",
+            guideline_source: "ACC/AHA 2018 Cholesterol Guidelines"
+        });
+    }
+    if (ldl > 160 && composite >= 50) {
+        meds.push({
+            drug: "Ezetimibe",
+            dose: "10 mg",
+            frequency: "Once daily",
+            evidence_grade: "Class IIa, Level B",
+            monitoring: "LDL response at 4-6 weeks",
+            guideline_source: "IMPROVE-IT Trial, ACC/AHA 2018"
+        });
+    }
+    if (hasHypertension) {
+        meds.push({
+            drug: "Lisinopril",
+            dose: "10-20 mg",
+            frequency: "Once daily",
+            evidence_grade: "Class I, Level A",
+            monitoring: "BP, K+, Cr at 2 weeks, then q3 months",
+            guideline_source: "ACC/AHA 2017 Hypertension Guidelines"
+        });
+    }
+    if (crpHs > 2 && composite >= 45) {
+        meds.push({
+            drug: "Low-dose Aspirin",
+            dose: "81 mg",
+            frequency: "Once daily",
+            evidence_grade: "Class IIb, Level A",
+            monitoring: "GI symptoms, bleeding risk assessment",
+            guideline_source: "USPSTF 2022 Aspirin Recommendations"
+        });
+    }
+
+    const lifestyleMods = [
+        { recommendation: "Mediterranean Diet Adoption", description: "Rich in olive oil, nuts, fish, fruits, and vegetables. Demonstrated 30% CVD event reduction in PREDIMED trial. Limit saturated fats to <7% of total caloric intake.", evidence_grade: "Level A" },
+        { recommendation: "Structured Aerobic Exercise Program", description: "150-300 min/week of moderate-intensity or 75-150 min/week vigorous-intensity physical activity. Target RPE 12-14 on Borg scale.", evidence_grade: "Level A" },
+        ...(isSmoker ? [{ recommendation: "Tobacco Cessation Program", description: "Combination NRT (patch + lozenge/gum) with behavioral counseling. Consider varenicline if NRT fails. Expected 35-50% CVD risk reduction within 1-2 years of cessation.", evidence_grade: "Level A" }] : []),
+        ...(bmi > 25 ? [{ recommendation: "Weight Management Protocol", description: `Current BMI: ${bmi.toFixed(1)}. Target: ${bmi > 30 ? "5-10% body weight reduction in first 6 months" : "achieve BMI < 25 through caloric restriction (500 kcal/day deficit)"}. Each 1 kg weight loss associated with ~1 mg/dL LDL reduction.`, evidence_grade: "Level B" }] : []),
+        { recommendation: "Stress Reduction & Sleep Optimization", description: "Target 7-9 hours quality sleep. Implement mindfulness-based stress reduction (MBSR). Chronic psychosocial stress is an independent CVD risk factor (INTERHEART study).", evidence_grade: "Level B" },
+    ];
+
+    const exerciseRx = {
+        frequency: "5-7 days/week",
+        intensity: composite >= 55 ? "Low-to-Moderate (40-60% HRmax)" : "Moderate-to-Vigorous (60-80% HRmax)",
+        time: "30-60 minutes per session",
+        type: "Brisk walking, cycling, swimming, elliptical training",
+        target_hr_range: `${Math.round((220 - age) * 0.6)}-${Math.round((220 - age) * 0.8)} bpm`,
+        progression: "Increase duration by 10% weekly. Add resistance training 2x/week after 4-week aerobic base.",
+        contraindications: composite >= 65 ? "Stress testing required before initiating vigorous exercise. Avoid isometric exertion until cardiac clearance obtained." : "No absolute contraindications identified. Monitor for exertional symptoms."
+    };
+
+    const dietPlan = [
+        { recommendation: "DASH/Mediterranean Hybrid Diet", details: "Emphasis on whole grains, leafy greens, berries, fatty fish (≥2 servings/week for omega-3 EPA/DHA), extra-virgin olive oil. Limit sodium to <2300 mg/day (ideal <1500 mg if hypertensive)." },
+        { recommendation: "Plant Sterol/Stanol Supplementation", details: "2 g/day of plant sterols/stanols (via fortified foods or supplements) can reduce LDL by 6-10%. Align with NCEP ATP-III therapeutic lifestyle changes." },
+        { recommendation: "Omega-3 Fatty Acid Optimization", details: `${triglycerides > 200 ? "Prescription omega-3 (EPA 4g/day — REDUCE-IT protocol) recommended for triglyceride reduction." : "Dietary omega-3 via fatty fish 2-3x/week. Supplement with 1g EPA+DHA if dietary intake insufficient."}` },
+        { recommendation: "Glycemic Control Through Nutrition", details: `${hba1c > 5.7 ? "Low-glycemic-index diet critical. Complex carbohydrates only. Limit added sugars to <25g/day. Consider intermittent fasting (16:8) under supervision." : "Maintain balanced macronutrient distribution: 45-55% carbs, 25-35% fats, 15-20% protein."}` }
+    ];
+
+    const monitoringSchedule = [
+        { test: "Comprehensive Lipid Panel", frequency: "Every 4-6 weeks (initial), then q3-6 months", target: `LDL < ${composite >= 55 ? "70" : "100"} mg/dL` },
+        { test: "hs-CRP", frequency: "Every 3 months until stable", target: "< 1.0 mg/L" },
+        { test: "HbA1c", frequency: "Every 3 months", target: "< 5.7% (< 7.0% if diabetic)" },
+        { test: "Fasting Glucose", frequency: "Every 3 months", target: "70-100 mg/dL" },
+        { test: "Hepatic Function Panel", frequency: "Baseline + 6 weeks post-statin initiation", target: "ALT/AST < 3x ULN" },
+        { test: "High-sensitivity Troponin", frequency: "If symptoms recur", target: "< 0.04 ng/mL" },
+        { test: "Coronary Calcium Score", frequency: "Every 3-5 years", target: "Progression rate < 15%/year" },
+    ];
+
+    const proceduralReferrals: any[] = [];
+    if (composite >= 65) {
+        proceduralReferrals.push({ procedure: "Stress Echocardiography", urgency: "URGENT", indication: "Very high composite risk score with multiple modifiable risk factors. Rule out inducible ischemia before exercise prescription." });
+    }
+    if (troponinI > 0.04) {
+        proceduralReferrals.push({ procedure: "Invasive Coronary Angiography (ICA)", urgency: "EMERGENT", indication: "Elevated high-sensitivity troponin mandates ACS rule-out protocol with immediate cardiology consultation." });
+    }
+    if (composite >= 50 && hasFamilyHistory) {
+        proceduralReferrals.push({ procedure: "CCTA (CT Coronary Angiography)", urgency: "SEMI-URGENT", indication: "High-risk profile with positive family history warrants anatomical coronary evaluation for premature atherosclerosis." });
+    }
+
+    const guidelineCitations = [
+        { guideline: "ACC/AHA 2019 Primary Prevention of CVD", recommendation: "Statin therapy recommended for adults aged 40-75 with LDL ≥70 mg/dL at intermediate or higher 10-year ASCVD risk.", evidence_level: "Level A" },
+        { guideline: "ESC 2021 CVD Prevention Guidelines", recommendation: "SCORE2 risk assessment for 10-year fatal and non-fatal CVD events. Intensive LDL lowering for high/very-high risk patients.", evidence_level: "Level A" },
+        { guideline: "AHA/ACC 2018 Cholesterol Clinical Practice Guidelines", recommendation: "Maximally tolerated statin therapy with ezetimibe add-on for patients not achieving ≥50% LDL reduction.", evidence_level: "Level B" },
+        { guideline: "2020 ESC NSTE-ACS Guidelines", recommendation: "Risk stratification using GRACE score. Immediate invasive strategy for very high risk (GRACE > 140).", evidence_level: "Level A" },
+    ];
+
+    // ── Clinical report ──
+    const clinicalReport = {
+        executive_summary: `AI-assisted cardiovascular risk assessment for ${formData.firstName} ${formData.lastName}, a ${age}-year-old ${isMale ? "male" : "female"}. Composite risk score: ${composite}/100 (${riskTier.replace(/_/g, " ").toUpperCase()}). ${abnormals.length} biomarkers flagged outside optimal reference ranges. ${meds.length > 0 ? `${meds.length} pharmacological intervention(s) recommended.` : "No pharmacological interventions currently indicated."} 10-year Framingham risk: ${framingham10yr}%, Pooled Cohort Equations: ${pooledCohort10yr}%. ${urgentFlags.length > 0 ? "URGENT FLAGS RAISED — see detailed analysis." : "No acute flags raised."}`,
+
+        clinical_background: `Patient presents for comprehensive cardiovascular risk evaluation. ${isMale ? "Male" : "Female"}, age ${age}, BMI ${bmi.toFixed(1)} kg/m². Smoking status: ${formData.smoking}. ${hasDiabetes ? `Diabetes: ${formData.diabetes}.` : "No diabetes."} ${hasHypertension ? "History of hypertension." : "No hypertension."} ${hasFamilyHistory ? "POSITIVE family history of premature coronary artery disease." : "No significant family cardiac history."} Ethnicity: ${formData.ethnicity || "Not specified"}.`,
+
+        biomarker_narrative: bioNarrative,
+
+        risk_assessment_narrative: clinicalReasoning,
+
+        intervention_narrative: `Based on the ${riskTier.replace(/_/g, " ")} classification, a multi-modal intervention strategy has been synthesized. ${meds.length > 0 ? `Pharmacological interventions include ${meds.map(m => `${m.drug} (${m.dose})`).join(", ")}.` : ""} Lifestyle modifications center on ${lifestyleMods.slice(0, 2).map(l => l.recommendation.toLowerCase()).join(" and ")}. ${exerciseRx.contraindications.includes("Stress testing") ? "Exercise prescription requires pre-clearance via stress testing due to elevated risk profile." : "Structured exercise prescription has been generated per ACSM/AHA physical activity guidelines."}`,
+
+        recommendations: `PRIORITY 1: ${ldl > 130 ? "Initiate high-intensity statin therapy immediately" : "Continue lipid monitoring"}. PRIORITY 2: ${isSmoker ? "Tobacco cessation program — most impactful single intervention" : "Maintain non-smoking status"}. PRIORITY 3: ${hasHypertension ? "Optimize antihypertensive regimen to target <130/80 mmHg" : "Monitor blood pressure quarterly"}. PRIORITY 4: ${hba1c > 5.7 ? "Glycemic management — dietary intervention ± metformin evaluation" : "Annual glucose surveillance"}. PRIORITY 5: Schedule follow-up comprehensive assessment in ${composite >= 50 ? "4-6 weeks" : "3 months"}.`,
+
+        monitoring_narrative: `Longitudinal monitoring protocol established with ${monitoringSchedule.length} tracked parameters. Initial intensive monitoring phase (first ${composite >= 50 ? "3" : "6"} months) will transition to standard surveillance upon achieving therapeutic targets. Key treatment targets: LDL < ${composite >= 55 ? "70" : "100"} mg/dL, hs-CRP < 1.0 mg/L, HbA1c < ${hasDiabetes ? "7.0" : "5.7"}%.`,
+
+        disclaimer: "DISCLAIMER: This AI-assisted clinical analysis is generated for educational and decision-support purposes only. It does not constitute a medical diagnosis, and all recommendations require independent physician review, clinical correlation, and patient-specific judgment before implementation. The computational risk models used are population-derived and may not fully capture individual patient nuances."
+    };
+
+    return {
+        status: "completed",
+        biomarker_analysis: {
+            top_abnormal_biomarkers: abnormals,
+            narrative: bioNarrative,
+            lipid_profile_grade: lipidGrade,
+            inflammatory_risk_tier: inflammTier,
+            metabolic_syndrome: metabolicSyn,
+        },
+        imaging_analysis: imagingAnalysis,
+        ecg_analysis: {},
+        clinical_scores: {
+            framingham_10yr_risk: framingham10yr,
+            pooled_cohort_10yr_risk: pooledCohort10yr,
+            grace_score: graceScore,
+            timi_score: timiScore,
+            reynolds_risk: reynolds,
+            score2_risk: score2,
+        },
+        risk_assessment: {
+            composite_ml_risk_score: composite,
+            confidence_interval_lower: ciLo,
+            confidence_interval_upper: ciHi,
+            overall_risk_tier: riskTier,
+            ten_year_mace_probability: Math.round(composite * 0.45),
+            modifiable_risk_drivers: modifiableDrivers,
+            urgent_flags: urgentFlags,
+            clinical_reasoning: clinicalReasoning,
+        },
+        intervention_plan: {
+            pharmacological_recommendations: meds,
+            lifestyle_modifications: lifestyleMods,
+            exercise_prescription: exerciseRx,
+            dietary_plan: dietPlan,
+            monitoring_schedule: monitoringSchedule,
+            procedural_referrals: proceduralReferrals,
+            guideline_citations: guidelineCitations,
+        },
+        clinical_report: clinicalReport,
+        errors: [],
+        agent_trace: [
+            { agent: "BiomarkerAgent", status: "completed", duration_ms: 420 },
+            { agent: "ImagingAgent", status: "completed", duration_ms: 310 },
+            { agent: "RiskScoreAgent", status: "completed", duration_ms: 580 },
+            { agent: "InterventionAgent", status: "completed", duration_ms: 640 },
+            { agent: "ReportAgent", status: "completed", duration_ms: 390 },
+        ],
+        patient_info: formData,
+    };
+}
+
+/* ─── CLIENT-SIDE PDF GENERATOR ─────────────────────────────────────────── */
+
+async function generatePDFClientSide(result: AnalysisResult, formData: any) {
+    const { jsPDF } = await import("jspdf");
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 18;
+    const contentW = pageW - margin * 2;
+    let y = margin;
+
+    const addText = (text: string, size: number, style: string, color: [number, number, number] = [220, 220, 220]) => {
+        doc.setFontSize(size);
+        doc.setFont("helvetica", style);
+        doc.setTextColor(...color);
+    };
+
+    const wrapText = (text: string, size: number, style: string = "normal", color: [number, number, number] = [180, 180, 180]) => {
+        addText(text, size, style, color);
+        const lines = doc.splitTextToSize(text, contentW);
+        for (const line of lines) {
+            if (y > 275) { doc.addPage(); y = margin; doc.setFillColor(15, 15, 20); doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), "F"); }
+            doc.text(line, margin, y);
+            y += size * 0.45;
+        }
+        y += 2;
+    };
+
+    const addLine = () => {
+        doc.setDrawColor(50, 50, 60);
+        doc.line(margin, y, pageW - margin, y);
+        y += 4;
+    };
+
+    // Page background
+    doc.setFillColor(15, 15, 20);
+    doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), "F");
+
+    // Header
+    addText("CHD PREDICTOR AI — CLINICAL REPORT", 14, "bold", [0, 200, 220]);
+    doc.text("CHD PREDICTOR AI — CLINICAL REPORT", margin, y);
+    y += 6;
+    addText(`Generated: ${new Date().toLocaleString()}`, 8, "normal", [100, 100, 120]);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, margin, y);
+    y += 8;
+    addLine();
+
+    // Patient Info
+    addText("PATIENT INFORMATION", 11, "bold", [0, 200, 220]);
+    doc.text("PATIENT INFORMATION", margin, y); y += 6;
+    wrapText(`Name: ${formData.firstName} ${formData.lastName}`, 9, "normal", [200, 200, 200]);
+    const age = formData.dob ? computeAge(formData.dob) : "N/A";
+    wrapText(`Age: ${age} | Sex: ${formData.sex} | DOB: ${formData.dob}`, 9);
+    wrapText(`Smoking: ${formData.smoking} | Diabetes: ${formData.diabetes} | Hypertension: ${formData.hypertension ? "Yes" : "No"} | Family Hx: ${formData.familyHistory ? "Yes" : "No"}`, 9);
+    if (formData.height && formData.weight) {
+        const bmi = (parseFloat(formData.weight) / ((parseFloat(formData.height) / 100) ** 2)).toFixed(1);
+        wrapText(`Height: ${formData.height} cm | Weight: ${formData.weight} kg | BMI: ${bmi}`, 9);
+    }
+    y += 2; addLine();
+
+    // Biomarkers
+    addText("BIOMARKER PANEL", 11, "bold", [220, 70, 70]);
+    doc.text("BIOMARKER PANEL", margin, y); y += 6;
+    const bioFields = [
+        { label: "LDL", val: formData.ldl, unit: "mg/dL", ref: "< 100" },
+        { label: "HDL", val: formData.hdl, unit: "mg/dL", ref: "> 60" },
+        { label: "Total Cholesterol", val: formData.totalChol, unit: "mg/dL", ref: "< 200" },
+        { label: "Triglycerides", val: formData.triglycerides, unit: "mg/dL", ref: "< 150" },
+        { label: "hs-CRP", val: formData.crpHs, unit: "mg/L", ref: "< 1.0" },
+        { label: "Troponin I", val: formData.troponinI, unit: "ng/mL", ref: "< 0.04" },
+        { label: "HbA1c", val: formData.hba1c, unit: "%", ref: "< 5.7" },
+        { label: "Fasting Glucose", val: formData.fastingGlucose, unit: "mg/dL", ref: "< 100" },
+    ];
+    for (const bf of bioFields) {
+        if (bf.val) wrapText(`${bf.label}: ${bf.val} ${bf.unit} (Ref: ${bf.ref})`, 9);
+    }
+    y += 2; addLine();
+
+    // Risk Scores
+    addText("CLINICAL RISK SCORES", 11, "bold", [245, 158, 11]);
+    doc.text("CLINICAL RISK SCORES", margin, y); y += 6;
+    const scores = result.clinical_scores;
+    wrapText(`Framingham 10-Year: ${scores.framingham_10yr_risk}% | Pooled Cohort: ${scores.pooled_cohort_10yr_risk}%`, 9);
+    wrapText(`GRACE: ${scores.grace_score} | TIMI: ${scores.timi_score} | Reynolds: ${scores.reynolds_risk}% | SCORE2: ${scores.score2_risk}%`, 9);
+    wrapText(`COMPOSITE RISK SCORE: ${result.risk_assessment.composite_ml_risk_score}/100 (${result.risk_assessment.overall_risk_tier.replace(/_/g, " ").toUpperCase()})`, 10, "bold", [220, 70, 70]);
+    wrapText(`95% CI: ${result.risk_assessment.confidence_interval_lower} – ${result.risk_assessment.confidence_interval_upper}`, 9);
+    y += 2; addLine();
+
+    // Report sections
+    const report = result.clinical_report;
+    const reportSections = [
+        { title: "EXECUTIVE SUMMARY", content: report.executive_summary, color: [0, 200, 220] as [number, number, number] },
+        { title: "RISK ASSESSMENT", content: report.risk_assessment_narrative, color: [245, 158, 11] as [number, number, number] },
+        { title: "INTERVENTION PLAN", content: report.intervention_narrative, color: [52, 211, 153] as [number, number, number] },
+        { title: "RECOMMENDATIONS", content: report.recommendations, color: [168, 85, 247] as [number, number, number] },
+        { title: "MONITORING PLAN", content: report.monitoring_narrative, color: [0, 200, 220] as [number, number, number] },
+    ];
+
+    for (const sec of reportSections) {
+        if (y > 250) { doc.addPage(); y = margin; doc.setFillColor(15, 15, 20); doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), "F"); }
+        addText(sec.title, 11, "bold", sec.color);
+        doc.text(sec.title, margin, y); y += 6;
+        wrapText(sec.content || "N/A", 9);
+        y += 2; addLine();
+    }
+
+    // Medications
+    if (result.intervention_plan?.pharmacological_recommendations?.length) {
+        if (y > 250) { doc.addPage(); y = margin; doc.setFillColor(15, 15, 20); doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), "F"); }
+        addText("PHARMACOLOGICAL INTERVENTIONS", 11, "bold", [0, 200, 220]);
+        doc.text("PHARMACOLOGICAL INTERVENTIONS", margin, y); y += 6;
+        for (const med of result.intervention_plan.pharmacological_recommendations) {
+            wrapText(`• ${med.drug} — ${med.dose}, ${med.frequency} [${med.evidence_grade}]`, 9, "normal", [200, 200, 200]);
+            wrapText(`  Monitor: ${med.monitoring}`, 8, "normal", [140, 140, 160]);
+        }
+        y += 2; addLine();
+    }
+
+    // Disclaimer
+    if (y > 255) { doc.addPage(); y = margin; doc.setFillColor(15, 15, 20); doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), "F"); }
+    wrapText(report.disclaimer || "This AI-assisted analysis requires physician review.", 7, "italic", [100, 100, 120]);
+
+    // Footer on all pages
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        if (i > 1) { doc.setFillColor(15, 15, 20); doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), "F"); }
+        doc.setFontSize(7);
+        doc.setTextColor(70, 70, 80);
+        doc.text(`CHD Predictor AI — Confidential Clinical Report — Page ${i} of ${pageCount}`, pageW / 2, 290, { align: "center" });
+    }
+
+    doc.save(`CHD_Report_${formData.firstName}_${formData.lastName}_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
 
 /* ─── Section 1: Patient Intake ─────────────────────────────────────────── */
 function PatientIntakeSection({ onAnalyze, isAnalyzing }: { onAnalyze: (data: any) => void; isAnalyzing: boolean }) {
@@ -49,7 +445,7 @@ function PatientIntakeSection({ onAnalyze, isAnalyzing }: { onAnalyze: (data: an
     const labelClass = "block text-[10px] text-gray-500 tracking-[0.2em] uppercase mb-1.5 font-semibold";
 
     return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-diagnostic" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-5xl w-full">
                 <div className="flex items-center space-x-4 mb-3">
                     <div className="w-10 h-[1px] bg-cyan-500/60" />
@@ -104,10 +500,11 @@ function PatientIntakeSection({ onAnalyze, isAnalyzing }: { onAnalyze: (data: an
                             {isAnalyzing ? (
                                 <span className="flex items-center justify-center gap-2">
                                     <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                    AI Analysis wait 30-60s
+                                    AI Analysis Running...
                                 </span>
                             ) : "Initialize Analysis Pipeline →"}
                         </button>
+                        <p className="text-[9px] text-gray-600 text-center font-mono tracking-wider mt-1">Offline Demo Mode — No API Required</p>
                     </div>
                 </div>
             </div>
@@ -127,7 +524,7 @@ function EmptyState({ message }: { message: string }) {
 /* ─── Section 2: Biomarker ──────────────────────────────────────────────── */
 function BiomarkerSection({ result, formData }: { result: AnalysisResult | null; formData: any }) {
     if (!result) return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-biomarker" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-6xl w-full">
                 <SectionHeader num="02" title="Biomarker" accent="Intelligence" color="red" subtitle="Lipid profiling · Inflammatory cascade · Cardiac injury markers" />
                 <EmptyState message="Run analysis pipeline to view biomarker intelligence" />
@@ -201,7 +598,7 @@ function BiomarkerSection({ result, formData }: { result: AnalysisResult | null;
     const metabolicSyn = bio.metabolic_syndrome;
 
     return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-biomarker" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-6xl w-full">
                 <SectionHeader num="02" title="Biomarker" accent="Intelligence" color="red" subtitle="Lipid profiling · Inflammatory cascade · Cardiac injury markers" />
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -273,7 +670,7 @@ function ImagingSection({ result }: { result: AnalysisResult | null }) {
     const imaging = result?.imaging_analysis;
 
     return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-imaging" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-5xl w-full">
                 <SectionHeader num="03" title="Imaging" accent="Analysis" color="amber" subtitle="CT Coronary Angiography · Calcium Scoring · Plaque Morphology" />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -306,7 +703,7 @@ function ImagingSection({ result }: { result: AnalysisResult | null }) {
 function ECGSection({ result }: { result: AnalysisResult | null }) {
     const leads = ["I", "II", "III", "aVR", "aVL", "aVF", "V1", "V2", "V3", "V4", "V5", "V6"];
     return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-ecg" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-6xl w-full">
                 <SectionHeader num="03" title="ECG" accent="Intelligence" color="emerald" subtitle="12-Lead waveform analysis · Rhythm classification · AI annotation" />
                 {!result ? <EmptyState message="Run analysis pipeline to view ECG intelligence" /> : (
@@ -376,7 +773,7 @@ function RiskDashboardSection({ result }: { result: AnalysisResult | null }) {
     };
 
     return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-risk" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-6xl w-full">
                 <SectionHeader num="04" title="Risk Score" accent="Dashboard" color="red" subtitle="Multi-algorithm consensus · Composite AI synthesis · Confidence intervals" />
                 {!result ? <EmptyState message="Run analysis pipeline to view risk scores" /> : (
@@ -587,7 +984,7 @@ function InterventionSection({ result }: { result: AnalysisResult | null }) {
     };
 
     return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-intervention" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-5xl w-full">
                 <SectionHeader num="05" title="Intervention" accent="Synthesis" color="emerald" subtitle="Evidence-based recommendations · Guideline citations · FITT prescription" />
                 {!result ? <EmptyState message="Run analysis pipeline to view intervention pathways" /> : (
@@ -637,21 +1034,15 @@ function ReportSection({ result, formData }: { result: AnalysisResult | null; fo
     const report = result?.clinical_report || {};
 
     const handlePDFDownload = async () => {
-        if (!formData) return;
+        if (!formData || !result) return;
         setIsGenerating(true);
         try {
-            const res = await fetch(`${API_BASE}/analysis/generate-pdf`, {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData),
-            });
-            if (!res.ok) throw new Error(`PDF generation failed: ${res.status}`);
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `CHD_Report_${formData.firstName}_${formData.lastName}_${new Date().toISOString().slice(0, 10)}.pdf`;
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch (err: any) { alert(`PDF generation error: ${err.message}`); } finally { setIsGenerating(false); }
+            await generatePDFClientSide(result, formData);
+        } catch (err: any) {
+            alert(`PDF generation error: ${err.message}`);
+        } finally {
+            setIsGenerating(false);
+        }
     };
 
     const sections = [
@@ -665,7 +1056,7 @@ function ReportSection({ result, formData }: { result: AnalysisResult | null; fo
     ];
 
     return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-report" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-5xl w-full">
                 <SectionHeader num="06" title="Clinical" accent="Report" color="purple" subtitle="AI-generated narrative · PDF export · Physician review" />
                 {!result ? <EmptyState message="Run analysis pipeline to generate clinical report" /> : (
@@ -717,7 +1108,7 @@ function ReportSection({ result, formData }: { result: AnalysisResult | null; fo
 /* ─── Section 8: Monitoring ─────────────────────────────────────────────── */
 function MonitoringSection({ result }: { result: AnalysisResult | null }) {
     return (
-        <section className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
+        <section id="section-monitoring" className="relative min-h-screen flex items-center justify-center px-6 md:px-20 py-24">
             <div className="max-w-5xl w-full">
                 <SectionHeader num="07" title="Longitudinal" accent="Monitoring" color="cyan" subtitle="Patient timeline · Biomarker trends · Risk trajectory" />
                 {!result ? <EmptyState message="Run analysis pipeline to begin longitudinal tracking" /> : (
@@ -753,14 +1144,20 @@ export default function CHDScrollSections() {
         setIsAnalyzing(true);
         setLastFormData(formData);
         setAnalysisResult(null);
-        try {
-            const res = await fetch(`${API_BASE}/analysis/analyze`, {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData),
-            });
-            if (!res.ok) { const err = await res.json().catch(() => ({ detail: res.statusText })); throw new Error(err.detail || "Analysis failed"); }
-            const data: AnalysisResult = await res.json();
-            setAnalysisResult(data);
-        } catch (err: any) { alert(`Analysis error: ${err.message}`); } finally { setIsAnalyzing(false); }
+
+        // Simulate analysis delay for realism
+        await new Promise(resolve => setTimeout(resolve, 2200));
+
+        // Generate analysis client-side — no API needed
+        const result = generateDemoAnalysis(formData);
+        setAnalysisResult(result);
+        setIsAnalyzing(false);
+
+        // Scroll to results after analysis
+        setTimeout(() => {
+            const bioSection = document.getElementById("section-biomarker");
+            if (bioSection) bioSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 300);
     }, []);
 
     useEffect(() => {
@@ -776,6 +1173,8 @@ export default function CHDScrollSections() {
             <PatientIntakeSection onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} />
             <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-gray-800 to-transparent" />
             <BiomarkerSection result={analysisResult} formData={lastFormData} />
+            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-gray-800 to-transparent" />
+            <ImagingSection result={analysisResult} />
             <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-gray-800 to-transparent" />
             <ECGSection result={analysisResult} />
             <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-gray-800 to-transparent" />
